@@ -9,10 +9,16 @@ This agent continuously:
 5. Sends alerts
 """
 import asyncio
+import sys
+from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, List
 import schedule
 from loguru import logger
+
+# Add project root to Python path for GitHub Actions
+project_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(project_root))
 
 from services.data_ingestion.collectors.yahoo_collector import YahooFinanceCollector, POPULAR_ASX_STOCKS
 from services.data_ingestion.collectors.alpha_vantage_collector import AlphaVantageCollector
@@ -331,19 +337,47 @@ class AutonomousAIAgent:
 
 
 # Global agent instance
-agent = AutonomousAIAgent()
+agent = None
+
+
+def _parse_args():
+    import argparse
+    parser = argparse.ArgumentParser(description="ASX autonomous AI agent")
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Run a single update cycle then exit (for cron/GitHub Actions).",
+    )
+    return parser.parse_args()
 
 
 async def main():
     """Main entry point"""
+    global agent
+    agent = AutonomousAIAgent()
+    args = _parse_args()
+    
     try:
-        await agent.start()
+        if args.once:
+            # Run once and exit
+            logger.info("🕒 Running one-shot AI Agent cycle...")
+            await agent._update_prices()
+            logger.info("✅ Prices updated")
+            await agent._update_predictions()
+            logger.info("✅ Predictions updated")
+            await agent._generate_recommendations()
+            logger.info("✅ Recommendations generated")
+            logger.info("🎉 One-shot cycle complete!")
+        else:
+            # Run continuously
+            await agent.start()
     except KeyboardInterrupt:
         logger.info("Received shutdown signal")
         await agent.stop()
     except Exception as e:
         logger.error(f"Fatal error: {e}")
-        await agent.stop()
+        if agent:
+            await agent.stop()
 
 
 if __name__ == "__main__":
