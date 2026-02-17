@@ -1,0 +1,21 @@
+# Render.com deployment configuration
+# 100% FREE tier deployment
+
+services:
+  - type: web
+    name: asx-ai-agent
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python services/ai-agent/autonomous_agent.py
+    plan: free
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: ALPHA_VANTAGE_API_KEY
+        sync: false
+      - key: NEWSAPI_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
