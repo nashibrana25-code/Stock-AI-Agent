@@ -9,16 +9,14 @@ This agent continuously:
 5. Sends alerts
 """
 import asyncio
-import sys
-from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, List
-import schedule
 from loguru import logger
 
-# Add project root to Python path for GitHub Actions
-project_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(project_root))
+try:
+    import schedule
+except ImportError:
+    schedule = None  # Optional for --once mode
 
 from services.data_ingestion.collectors.yahoo_collector import YahooFinanceCollector, POPULAR_ASX_STOCKS
 from services.data_ingestion.collectors.alpha_vantage_collector import AlphaVantageCollector
@@ -65,6 +63,9 @@ class AutonomousAIAgent:
     
     def _schedule_tasks(self):
         """Schedule recurring tasks"""
+        if schedule is None:
+            raise RuntimeError("schedule library required for continuous mode. Run with --once or install schedule.")
+        
         # Real-time price updates (every 1 minute during market hours)
         schedule.every(1).minutes.do(lambda: asyncio.create_task(self._update_prices()))
         
@@ -94,6 +95,9 @@ class AutonomousAIAgent:
     async def _run_forever(self):
         """Main event loop - runs forever"""
         logger.info("🚀 AI Agent running 24/7...")
+        
+        if schedule is None:
+            raise RuntimeError("schedule library required for continuous mode")
         
         while self.is_running:
             try:
