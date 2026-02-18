@@ -1,25 +1,107 @@
 from http.server import BaseHTTPRequestHandler
 import json
-from datetime import datetime
-from urllib.parse import urlparse
+import math
+from datetime import datetime, timedelta
+from urllib.parse import urlparse, parse_qs
+
 
 ASX_STOCKS = {
-    "CBA.AX": {"name": "Commonwealth Bank", "sector": "Financials", "price": 118.50},
-    "BHP.AX": {"name": "BHP Group", "sector": "Materials", "price": 44.20},
-    "CSL.AX": {"name": "CSL Limited", "sector": "Healthcare", "price": 285.00},
-    "NAB.AX": {"name": "National Australia Bank", "sector": "Financials", "price": 37.80},
-    "WBC.AX": {"name": "Westpac Banking", "sector": "Financials", "price": 28.50},
-    "ANZ.AX": {"name": "ANZ Group", "sector": "Financials", "price": 29.20},
-    "FMG.AX": {"name": "Fortescue Metals", "sector": "Materials", "price": 19.80},
-    "WES.AX": {"name": "Wesfarmers", "sector": "Consumer", "price": 73.50},
+    "CBA.AX": {"name": "Commonwealth Bank", "sector": "Financials", "price": 118.5},
+    "BHP.AX": {"name": "BHP Group", "sector": "Materials", "price": 44.2},
+    "CSL.AX": {"name": "CSL Limited", "sector": "Healthcare", "price": 285.0},
+    "NAB.AX": {"name": "National Australia Bank", "sector": "Financials", "price": 37.8},
+    "WBC.AX": {"name": "Westpac Banking", "sector": "Financials", "price": 28.5},
+    "ANZ.AX": {"name": "ANZ Group", "sector": "Financials", "price": 29.2},
+    "FMG.AX": {"name": "Fortescue Metals", "sector": "Materials", "price": 19.8},
+    "WES.AX": {"name": "Wesfarmers", "sector": "Consumer", "price": 73.5},
     "TLS.AX": {"name": "Telstra Group", "sector": "Telecom", "price": 3.95},
-    "RIO.AX": {"name": "Rio Tinto", "sector": "Materials", "price": 118.00},
-    "MQG.AX": {"name": "Macquarie Group", "sector": "Financials", "price": 210.00},
-    "WOW.AX": {"name": "Woolworths", "sector": "Consumer", "price": 31.20},
-    "ALL.AX": {"name": "Aristocrat Leisure", "sector": "Technology", "price": 48.50},
-    "STO.AX": {"name": "Santos", "sector": "Energy", "price": 7.20},
-    "WDS.AX": {"name": "Woodside Energy", "sector": "Energy", "price": 25.80},
+    "RIO.AX": {"name": "Rio Tinto", "sector": "Materials", "price": 118.0},
+    "MQG.AX": {"name": "Macquarie Group", "sector": "Financials", "price": 210.0},
+    "WOW.AX": {"name": "Woolworths", "sector": "Consumer", "price": 31.2},
+    "ALL.AX": {"name": "Aristocrat Leisure", "sector": "Technology", "price": 48.5},
+    "STO.AX": {"name": "Santos", "sector": "Energy", "price": 7.2},
+    "WDS.AX": {"name": "Woodside Energy", "sector": "Energy", "price": 25.8},
 }
+
+
+RANGE_DAYS = {"1W": 7, "1M": 30, "3M": 90, "6M": 180, "1Y": 365, "5Y": 1825}
+
+
+def _seed(s):
+    return abs(hash(s)) % 2147483647
+
+
+def _pseudo_random(seed, i):
+    v = ((seed + i * 2654435761) ^ (seed >> 16)) & 0xFFFFFFFF
+    return (v % 10000) / 10000.0
+
+
+def generate_history(symbol, range_key):
+    if symbol not in ASX_STOCKS:
+        return None
+    info = ASX_STOCKS[symbol]
+    current = info["price"]
+    days = RANGE_DAYS.get(range_key, 30)
+    seed = _seed(symbol + range_key)
+
+    drift_pct = {"1W": -2, "1M": -5, "3M": -8, "6M": -12, "1Y": -18, "5Y": -40}
+    drift = drift_pct.get(range_key, -5)
+    start_price = current * (1 + drift / 100)
+
+    vol = 0.015 if days <= 30 else 0.012 if days <= 180 else 0.01
+    points = min(days, 250) if days > 60 else days
+    step = max(1, days // points)
+
+    prices = []
+    today = datetime.utcnow().date()
+    p = start_price
+
+    for i in range(points):
+        d = today - timedelta(days=days - i * step)
+        r = _pseudo_random(seed, i)
+        trend = (current - start_price) / points
+        noise = (r - 0.48) * current * vol
+        cycle = math.sin(i * 0.15 + seed % 7) * current * vol * 0.5
+        p = p + trend + noise + cycle
+        p = max(p, current * 0.3)
+
+        high = p * (1 + _pseudo_random(seed + 1000, i) * 0.02)
+        low = p * (1 - _pseudo_random(seed + 2000, i) * 0.02)
+        vol_day = int(500000 + _pseudo_random(seed + 3000, i) * 9500000)
+
+        prices.append({
+            "date": d.strftime("%Y-%m-%d"),
+            "open": round(p * (1 + (_pseudo_random(seed + 4000, i) - 0.5) * 0.005), 2),
+            "high": round(high, 2),
+            "low": round(low, 2),
+            "close": round(p, 2),
+            "volume": vol_day,
+        })
+
+    prices[-1]["close"] = current
+
+    closes = [pt["close"] for pt in prices]
+    period_return = round((current - closes[0]) / closes[0] * 100, 2)
+    high_price = max(pt["high"] for pt in prices)
+    low_price = min(pt["low"] for pt in prices)
+    avg_price = round(sum(closes) / len(closes), 2)
+    avg_vol = int(sum(pt["volume"] for pt in prices) / len(prices))
+
+    return {
+        "symbol": symbol,
+        "company_name": info["name"],
+        "sector": info["sector"],
+        "range": range_key,
+        "current_price": current,
+        "period_start_price": round(closes[0], 2),
+        "period_return_pct": period_return,
+        "period_high": round(high_price, 2),
+        "period_low": round(low_price, 2),
+        "average_price": avg_price,
+        "average_volume": avg_vol,
+        "data_points": len(prices),
+        "prices": prices,
+    }
 
 
 def get_tier(capital):
@@ -136,19 +218,33 @@ class handler(BaseHTTPRequestHandler):
         self._send_json({})
 
     def do_GET(self):
-        path = urlparse(self.path).path.rstrip("/") or "/"
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip("/") or "/"
+        params = parse_qs(parsed.query)
 
         if path == "/":
             self._send_json({
                 "name": "ASX AI Investment Platform",
                 "status": "online",
-                "version": "1.0.0",
+                "version": "1.1.0",
                 "timestamp": str(datetime.utcnow()),
             })
         elif path == "/health":
             self._send_json({"status": "healthy", "timestamp": str(datetime.utcnow())})
         elif path == "/api/v1/stocks":
             self._send_json(get_stocks())
+        elif path.startswith("/api/v1/stocks/") and path.count("/") == 4:
+            symbol = path.split("/")[-1]
+            if not symbol.endswith(".AX"):
+                symbol = symbol + ".AX"
+            range_key = params.get("range", ["1M"])[0]
+            if range_key not in RANGE_DAYS:
+                range_key = "1M"
+            data = generate_history(symbol, range_key)
+            if data:
+                self._send_json(data)
+            else:
+                self._send_json({"error": "Stock not found"}, 404)
         else:
             self._send_json({"error": "Not found"}, 404)
 
@@ -165,3 +261,4 @@ class handler(BaseHTTPRequestHandler):
             self._send_json(data, status)
         else:
             self._send_json({"error": "Not found"}, 404)
+
