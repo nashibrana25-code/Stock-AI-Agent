@@ -1,17 +1,15 @@
+# API dependencies (Vercel serverless)
 fastapi
-uvicorn
 pydantic
+uvicorn
+
+# Full project dependencies (GitHub Actions)
 pydantic-settings
-sqlalchemy
-asyncpg
-redis
-python-jose[cryptography]
-passlib[bcrypt]
-python-multipart
+loguru
 aiohttp
 yfinance
 pandas
 numpy
-loguru
 python-dotenv
 schedule
+requests
