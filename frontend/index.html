@@ -2,9 +2,28 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="description" content="AI-powered ASX stock recommendations - Get personalized investment advice from $50 to $10,000" />
     <title>ASX AI Investment Platform</title>
+
+    <!-- PWA Meta Tags -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#080b12" />
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <!-- iOS PWA Meta Tags -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="ASX AI" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <!-- Icons -->
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png" />
+
+    <!-- iOS Splash Screen Color -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -26,6 +45,26 @@
     </script>
   </head>
   <body class="bg-dark-900 text-white font-sans">
+    <style>
+      /* iOS PWA safe area + standalone mode styles */
+      body { -webkit-tap-highlight-color: transparent; }
+      @supports (padding-top: env(safe-area-inset-top)) {
+        .pwa-safe-top { padding-top: env(safe-area-inset-top); }
+        .pwa-safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+      }
+      /* Hide scrollbar in standalone mode for cleaner app feel */
+      @media (display-mode: standalone) {
+        body { overscroll-behavior-y: contain; }
+        ::-webkit-scrollbar { display: none; }
+      }
+      /* Smooth scroll */
+      html { scroll-behavior: smooth; }
+      /* Prevent text selection on double-tap (app-like feel) */
+      @media (display-mode: standalone) {
+        * { -webkit-user-select: none; user-select: none; }
+        input, textarea, select { -webkit-user-select: auto; user-select: auto; }
+      }
+    </style>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
