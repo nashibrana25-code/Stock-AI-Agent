@@ -32,6 +32,6 @@ jobs:
           NEWSAPI_KEY: ${{ secrets.NEWSAPI_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           REDIS_URL: ${{ secrets.REDIS_URL }}
-          PYTHONPATH: ${{ github.workspace }}
+          PYTHONPATH: .
         run: |
-          python services/ai-agent/autonomous_agent.py --once
+          python -m services.ai_agent.autonomous_agent --once
