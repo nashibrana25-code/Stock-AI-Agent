@@ -17,6 +17,10 @@ function App() {
   const [historyData, setHistoryData] = useState(null);
   const [historyRange, setHistoryRange] = useState('1M');
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [expandedRec, setExpandedRec] = useState(null);
+  const [recHistoryData, setRecHistoryData] = useState(null);
+  const [recHistoryRange, setRecHistoryRange] = useState('1M');
+  const [recHistoryLoading, setRecHistoryLoading] = useState(false);
 
   useEffect(() => {
     const checkConnection = async () => {
@@ -36,6 +40,7 @@ function App() {
     loadStocks();
   }, []);
 
+  // Market Overview history
   useEffect(() => {
     if (!selectedStock) { setHistoryData(null); return; }
     const fetchHistory = async () => {
@@ -49,8 +54,23 @@ function App() {
     fetchHistory();
   }, [selectedStock, historyRange]);
 
+  // Recommendation expanded history
+  useEffect(() => {
+    if (!expandedRec) { setRecHistoryData(null); return; }
+    const fetchHistory = async () => {
+      setRecHistoryLoading(true);
+      try {
+        const response = await axios.get(`${API_URL}/api/v1/stocks/${expandedRec}?range=${recHistoryRange}`);
+        setRecHistoryData(response.data);
+      } catch (err) { console.error('Error loading rec history:', err); }
+      finally { setRecHistoryLoading(false); }
+    };
+    fetchHistory();
+  }, [expandedRec, recHistoryRange]);
+
   const generateRecommendation = async () => {
     setLoading(true);
+    setExpandedRec(null);
     try {
       const response = await axios.post(`${API_URL}/api/v1/recommendations/generate`, {
         total_capital: parseFloat(capital),
@@ -105,7 +125,7 @@ function App() {
     };
   };
 
-  const PriceChart = ({ data }) => {
+  const PriceChart = ({ data, idPrefix }) => {
     if (!data || !data.prices || data.prices.length === 0) return null;
     const prices = data.prices.map(p => p.close);
     const minP = Math.min(...prices);
@@ -126,7 +146,9 @@ function App() {
     const areaPoints = `${pad.left},${pad.top + chartH} ${points} ${pad.left + chartW},${pad.top + chartH}`;
     const isPositive = prices[prices.length - 1] >= prices[0];
     const strokeColor = isPositive ? '#00d4aa' : '#ef4444';
-    const fillId = isPositive ? 'gradGain' : 'gradLoss';
+    const gainId = `${idPrefix || 'chart'}-gradGain`;
+    const lossId = `${idPrefix || 'chart'}-gradLoss`;
+    const fillId = isPositive ? gainId : lossId;
 
     const labelCount = 5;
     const step = Math.max(1, Math.floor((data.prices.length - 1) / (labelCount - 1)));
@@ -140,11 +162,11 @@ function App() {
     return (
       <svg viewBox={`0 0 ${w} ${h}`} className="w-full" preserveAspectRatio="none">
         <defs>
-          <linearGradient id="gradGain" x1="0" y1="0" x2="0" y2="1">
+          <linearGradient id={gainId} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="#00d4aa" stopOpacity="0.3" />
             <stop offset="100%" stopColor="#00d4aa" stopOpacity="0" />
           </linearGradient>
-          <linearGradient id="gradLoss" x1="0" y1="0" x2="0" y2="1">
+          <linearGradient id={lossId} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="#ef4444" stopOpacity="0.3" />
             <stop offset="100%" stopColor="#ef4444" stopOpacity="0" />
           </linearGradient>
@@ -155,6 +177,189 @@ function App() {
           <text key={i} x={d.x} y={h - 5} textAnchor="middle" fill="#6b7280" fontSize="10">{d.label}</text>
         ))}
       </svg>
+    );
+  };
+
+  const StockAnalysisPanel = ({ symbol, stockData, analysisData, hData, hRange, hLoading, onRangeChange, onClose, idPrefix }) => {
+    const a = analysisData;
+    const data = stockData;
+    return (
+      <div className="mt-4 bg-dark-800 border border-accent/20 rounded-2xl p-6 animate-in">
+        {/* Header */}
+        <div className="flex items-start justify-between mb-6">
+          <div>
+            <div className="flex items-center gap-3 mb-1">
+              <h3 className="text-2xl font-bold">{symbol.replace('.AX', '')}</h3>
+              <span className={`text-xs px-2 py-1 rounded-lg font-semibold ${a.signalColor}`}>{a.signal}</span>
+            </div>
+            <p className="text-sm text-gray-400">{data.company_name || data.name} &middot; {data.sector}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-500 hover:text-white transition p-1">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Price Overview Row */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <div className="bg-dark-700 rounded-xl p-4">
+            <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Current Price</p>
+            <p className="text-2xl font-bold">${data.current_price || data.price}</p>
+            <p className={`text-xs font-medium mt-1 ${parseFloat(a.dayChange) >= 0 ? 'text-gain' : 'text-loss'}`}>
+              {parseFloat(a.dayChange) >= 0 ? '\u25B2' : '\u25BC'} {a.dayChange}% today
+            </p>
+          </div>
+          <div className="bg-dark-700 rounded-xl p-4">
+            <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">AI Target</p>
+            <p className="text-2xl font-bold text-accent">${a.targetPrice}</p>
+            <p className="text-xs text-gain mt-1">+${a.potentialGain} upside</p>
+          </div>
+          <div className="bg-dark-700 rounded-xl p-4">
+            <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Expected Return</p>
+            <p className="text-2xl font-bold text-gain">+{a.baseReturn}%</p>
+            <p className="text-xs text-gray-500 mt-1">AI predicted</p>
+          </div>
+          <div className="bg-dark-700 rounded-xl p-4">
+            <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Confidence</p>
+            <p className="text-2xl font-bold">{a.confidence}%</p>
+            <div className="w-full h-1.5 bg-dark-600 rounded-full mt-2 overflow-hidden">
+              <div className="h-full bg-accent rounded-full" style={{ width: `${a.confidence}%` }} />
+            </div>
+          </div>
+        </div>
+
+        {/* Price History Chart */}
+        <div className="bg-dark-700/50 rounded-xl p-4 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <p className="text-[10px] text-gray-500 uppercase tracking-wider">Price History</p>
+              {hData && (
+                <div className="flex items-center gap-2 mt-1">
+                  <span className={`text-lg font-bold ${hData.period_return_pct >= 0 ? 'text-gain' : 'text-loss'}`}>
+                    {hData.period_return_pct >= 0 ? '+' : ''}{hData.period_return_pct}%
+                  </span>
+                  <span className="text-xs text-gray-500">
+                    ${hData.period_start_price} &rarr; ${hData.current_price}
+                  </span>
+                </div>
+              )}
+            </div>
+            <div className="flex gap-1 bg-dark-800 rounded-lg p-0.5">
+              {RANGES.map(r => (
+                <button
+                  key={r}
+                  onClick={(e) => { e.stopPropagation(); onRangeChange(r); }}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                    hRange === r
+                      ? 'bg-accent text-dark-900'
+                      : 'text-gray-400 hover:text-white'
+                  }`}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {hLoading ? (
+            <div className="h-40 flex items-center justify-center">
+              <svg className="animate-spin h-6 w-6 text-accent" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+            </div>
+          ) : hData ? (
+            <>
+              <PriceChart data={hData} idPrefix={idPrefix} />
+              <div className="grid grid-cols-4 gap-3 mt-4">
+                <div className="bg-dark-800/80 rounded-lg p-2.5">
+                  <p className="text-[9px] text-gray-500 uppercase">Period High</p>
+                  <p className="text-sm font-bold text-gain">${hData.period_high}</p>
+                </div>
+                <div className="bg-dark-800/80 rounded-lg p-2.5">
+                  <p className="text-[9px] text-gray-500 uppercase">Period Low</p>
+                  <p className="text-sm font-bold text-loss">${hData.period_low}</p>
+                </div>
+                <div className="bg-dark-800/80 rounded-lg p-2.5">
+                  <p className="text-[9px] text-gray-500 uppercase">Avg Price</p>
+                  <p className="text-sm font-bold">${hData.average_price}</p>
+                </div>
+                <div className="bg-dark-800/80 rounded-lg p-2.5">
+                  <p className="text-[9px] text-gray-500 uppercase">Avg Volume</p>
+                  <p className="text-sm font-bold">{hData.average_volume?.toLocaleString()}</p>
+                </div>
+              </div>
+            </>
+          ) : null}
+        </div>
+
+        {/* 52-Week Range */}
+        <div className="bg-dark-700/50 rounded-xl p-4 mb-6">
+          <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-3">52-Week Range</p>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-gray-400 w-16">${a.weekLow52}</span>
+            <div className="flex-1 relative h-2 bg-dark-600 rounded-full">
+              <div className="absolute h-full bg-gradient-to-r from-loss via-yellow-500 to-gain rounded-full" style={{ width: '100%' }} />
+              <div
+                className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full border-2 border-dark-900 shadow-lg"
+                style={{ left: `${Math.min(Math.max(a.pricePosition, 2), 98)}%` }}
+              />
+            </div>
+            <span className="text-xs text-gray-400 w-16 text-right">${a.weekHigh52}</span>
+          </div>
+        </div>
+
+        {/* Fundamentals Grid */}
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+          <div className="bg-dark-700/50 rounded-lg p-3">
+            <p className="text-[10px] text-gray-500 uppercase tracking-wider">P/E Ratio</p>
+            <p className="text-sm font-bold mt-1">{a.peRatio}x</p>
+          </div>
+          <div className="bg-dark-700/50 rounded-lg p-3">
+            <p className="text-[10px] text-gray-500 uppercase tracking-wider">Div. Yield</p>
+            <p className="text-sm font-bold mt-1">{a.divYield}%</p>
+          </div>
+          <div className="bg-dark-700/50 rounded-lg p-3">
+            <p className="text-[10px] text-gray-500 uppercase tracking-wider">Volatility</p>
+            <p className="text-sm font-bold mt-1">{a.volatility}%</p>
+          </div>
+          <div className="bg-dark-700/50 rounded-lg p-3">
+            <p className="text-[10px] text-gray-500 uppercase tracking-wider">Market Cap</p>
+            <p className="text-sm font-bold mt-1">${a.marketCap}B</p>
+          </div>
+          <div className="bg-dark-700/50 rounded-lg p-3">
+            <p className="text-[10px] text-gray-500 uppercase tracking-wider">Volume</p>
+            <p className="text-sm font-bold mt-1">{a.volume}</p>
+          </div>
+          <div className="bg-dark-700/50 rounded-lg p-3">
+            <p className="text-[10px] text-gray-500 uppercase tracking-wider">Risk</p>
+            <p className={`text-sm font-bold mt-1 ${a.riskColor}`}>{a.riskLabel}</p>
+          </div>
+        </div>
+
+        {/* Investment Scenarios */}
+        <div className="bg-dark-700/30 rounded-xl p-4">
+          <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-3">If You Invest Today</p>
+          <div className="grid grid-cols-3 gap-4">
+            {[500, 1000, 5000].map((amt) => {
+              const price = data.current_price || data.price;
+              const shares = Math.floor(amt / price);
+              const invested = shares * price;
+              const futureVal = invested * (1 + parseFloat(a.baseReturn) / 100);
+              const profit = futureVal - invested;
+              return (
+                <div key={amt} className="bg-dark-800 rounded-lg p-3 border border-dark-600/30">
+                  <p className="text-xs text-gray-400 mb-2">${amt.toLocaleString()} invested</p>
+                  <p className="text-xs text-gray-500">{shares} shares @ ${price}</p>
+                  <p className="text-sm font-bold text-gain mt-2">+${profit.toFixed(2)}</p>
+                  <p className="text-[10px] text-gray-500">Projected profit</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
     );
   };
 
@@ -300,49 +505,82 @@ function App() {
                 </div>
 
                 <div className="space-y-3">
-                  {recommendations.recommendations?.map((stock, index) => (
-                    <div key={index} className="bg-dark-800 border border-dark-600/50 rounded-2xl p-5 hover:border-dark-500 transition-all group">
-                      <div className="flex items-start justify-between mb-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-xl bg-dark-700 flex items-center justify-center text-xs font-bold text-accent border border-dark-600">
-                            {index + 1}
-                          </div>
-                          <div>
-                            <h3 className="font-bold text-base">{stock.symbol.replace('.AX', '')}</h3>
-                            <p className="text-xs text-gray-500">{stock.company_name}</p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-lg font-bold text-gain">${stock.recommended_allocation.toLocaleString()}</p>
-                          <p className="text-xs text-gray-500">{stock.recommended_shares} shares</p>
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-4 gap-4">
-                        <div className="bg-dark-700/50 rounded-lg p-3">
-                          <p className="text-[10px] text-gray-500 uppercase tracking-wider">Price</p>
-                          <p className="text-sm font-semibold mt-0.5">${stock.current_price}</p>
-                        </div>
-                        <div className="bg-dark-700/50 rounded-lg p-3">
-                          <p className="text-[10px] text-gray-500 uppercase tracking-wider">Target</p>
-                          <p className="text-sm font-semibold mt-0.5 text-accent">${stock.target_price}</p>
-                        </div>
-                        <div className="bg-dark-700/50 rounded-lg p-3">
-                          <p className="text-[10px] text-gray-500 uppercase tracking-wider">Return</p>
-                          <p className="text-sm font-semibold mt-0.5 text-gain">+{stock.predicted_return}%</p>
-                        </div>
-                        <div className="bg-dark-700/50 rounded-lg p-3">
-                          <p className="text-[10px] text-gray-500 uppercase tracking-wider">Confidence</p>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <div className="flex-1 h-1.5 bg-dark-600 rounded-full overflow-hidden">
-                              <div className="h-full bg-accent rounded-full" style={{ width: `${stock.confidence_score * 100}%` }} />
+                  {recommendations.recommendations?.map((stock, index) => {
+                    const isExpanded = expandedRec === stock.symbol;
+                    const a = getStockAnalysis(stock.symbol, { current_price: stock.current_price });
+                    return (
+                      <div key={index}>
+                        <div
+                          onClick={() => { setExpandedRec(isExpanded ? null : stock.symbol); setRecHistoryRange('1M'); }}
+                          className={`bg-dark-800 border rounded-2xl p-5 cursor-pointer transition-all group ${
+                            isExpanded ? 'border-accent/50 ring-1 ring-accent/20' : 'border-dark-600/50 hover:border-dark-500'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between mb-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-xl bg-dark-700 flex items-center justify-center text-xs font-bold text-accent border border-dark-600">
+                                {index + 1}
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <h3 className="font-bold text-base">{stock.symbol.replace('.AX', '')}</h3>
+                                  <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-semibold ${a.signalColor}`}>{a.signal}</span>
+                                </div>
+                                <p className="text-xs text-gray-500">{stock.company_name}</p>
+                              </div>
                             </div>
-                            <span className="text-xs font-semibold">{(stock.confidence_score * 100).toFixed(0)}%</span>
+                            <div className="flex items-center gap-3">
+                              <div className="text-right">
+                                <p className="text-lg font-bold text-gain">${stock.recommended_allocation.toLocaleString()}</p>
+                                <p className="text-xs text-gray-500">{stock.recommended_shares} shares</p>
+                              </div>
+                              <svg className={`w-4 h-4 text-gray-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                              </svg>
+                            </div>
                           </div>
+                          <div className="grid grid-cols-4 gap-4">
+                            <div className="bg-dark-700/50 rounded-lg p-3">
+                              <p className="text-[10px] text-gray-500 uppercase tracking-wider">Price</p>
+                              <p className="text-sm font-semibold mt-0.5">${stock.current_price}</p>
+                            </div>
+                            <div className="bg-dark-700/50 rounded-lg p-3">
+                              <p className="text-[10px] text-gray-500 uppercase tracking-wider">Target</p>
+                              <p className="text-sm font-semibold mt-0.5 text-accent">${stock.target_price}</p>
+                            </div>
+                            <div className="bg-dark-700/50 rounded-lg p-3">
+                              <p className="text-[10px] text-gray-500 uppercase tracking-wider">Return</p>
+                              <p className="text-sm font-semibold mt-0.5 text-gain">+{stock.predicted_return}%</p>
+                            </div>
+                            <div className="bg-dark-700/50 rounded-lg p-3">
+                              <p className="text-[10px] text-gray-500 uppercase tracking-wider">Confidence</p>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <div className="flex-1 h-1.5 bg-dark-600 rounded-full overflow-hidden">
+                                  <div className="h-full bg-accent rounded-full" style={{ width: `${stock.confidence_score * 100}%` }} />
+                                </div>
+                                <span className="text-xs font-semibold">{(stock.confidence_score * 100).toFixed(0)}%</span>
+                              </div>
+                            </div>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-3 leading-relaxed">{stock.reasoning}</p>
                         </div>
+
+                        {isExpanded && (
+                          <StockAnalysisPanel
+                            symbol={stock.symbol}
+                            stockData={{ current_price: stock.current_price, company_name: stock.company_name, sector: stock.reasoning.split('(')[1]?.split(')')[0] || 'ASX' }}
+                            analysisData={a}
+                            hData={recHistoryData}
+                            hRange={recHistoryRange}
+                            hLoading={recHistoryLoading}
+                            onRangeChange={setRecHistoryRange}
+                            onClose={() => setExpandedRec(null)}
+                            idPrefix={`rec-${index}`}
+                          />
+                        )}
                       </div>
-                      <p className="text-xs text-gray-500 mt-3 leading-relaxed">{stock.reasoning}</p>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -408,181 +646,17 @@ function App() {
               const data = stocks[selectedStock];
               const a = getStockAnalysis(selectedStock, data);
               return (
-                <div className="mt-6 bg-dark-800 border border-accent/20 rounded-2xl p-6 animate-in">
-                  {/* Header */}
-                  <div className="flex items-start justify-between mb-6">
-                    <div>
-                      <div className="flex items-center gap-3 mb-1">
-                        <h3 className="text-2xl font-bold">{selectedStock.replace('.AX', '')}</h3>
-                        <span className={`text-xs px-2 py-1 rounded-lg font-semibold ${a.signalColor}`}>{a.signal}</span>
-                      </div>
-                      <p className="text-sm text-gray-400">{data.company_name} &middot; {data.sector}</p>
-                    </div>
-                    <button onClick={() => setSelectedStock(null)} className="text-gray-500 hover:text-white transition p-1">
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </div>
-
-                  {/* Price Overview Row */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                    <div className="bg-dark-700 rounded-xl p-4">
-                      <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Current Price</p>
-                      <p className="text-2xl font-bold">${data.current_price}</p>
-                      <p className={`text-xs font-medium mt-1 ${parseFloat(a.dayChange) >= 0 ? 'text-gain' : 'text-loss'}`}>
-                        {parseFloat(a.dayChange) >= 0 ? '\u25B2' : '\u25BC'} {a.dayChange}% today
-                      </p>
-                    </div>
-                    <div className="bg-dark-700 rounded-xl p-4">
-                      <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">AI Target</p>
-                      <p className="text-2xl font-bold text-accent">${a.targetPrice}</p>
-                      <p className="text-xs text-gain mt-1">+${a.potentialGain} upside</p>
-                    </div>
-                    <div className="bg-dark-700 rounded-xl p-4">
-                      <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Expected Return</p>
-                      <p className="text-2xl font-bold text-gain">+{a.baseReturn}%</p>
-                      <p className="text-xs text-gray-500 mt-1">AI predicted</p>
-                    </div>
-                    <div className="bg-dark-700 rounded-xl p-4">
-                      <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Confidence</p>
-                      <p className="text-2xl font-bold">{a.confidence}%</p>
-                      <div className="w-full h-1.5 bg-dark-600 rounded-full mt-2 overflow-hidden">
-                        <div className="h-full bg-accent rounded-full" style={{ width: `${a.confidence}%` }} />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Price History Chart */}
-                  <div className="bg-dark-700/50 rounded-xl p-4 mb-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <div>
-                        <p className="text-[10px] text-gray-500 uppercase tracking-wider">Price History</p>
-                        {historyData && (
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className={`text-lg font-bold ${historyData.period_return_pct >= 0 ? 'text-gain' : 'text-loss'}`}>
-                              {historyData.period_return_pct >= 0 ? '+' : ''}{historyData.period_return_pct}%
-                            </span>
-                            <span className="text-xs text-gray-500">
-                              ${historyData.period_start_price} &rarr; ${historyData.current_price}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex gap-1 bg-dark-800 rounded-lg p-0.5">
-                        {RANGES.map(r => (
-                          <button
-                            key={r}
-                            onClick={(e) => { e.stopPropagation(); setHistoryRange(r); }}
-                            className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
-                              historyRange === r
-                                ? 'bg-accent text-dark-900'
-                                : 'text-gray-400 hover:text-white'
-                            }`}
-                          >
-                            {r}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {historyLoading ? (
-                      <div className="h-40 flex items-center justify-center">
-                        <svg className="animate-spin h-6 w-6 text-accent" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                        </svg>
-                      </div>
-                    ) : historyData ? (
-                      <>
-                        <PriceChart data={historyData} />
-                        <div className="grid grid-cols-4 gap-3 mt-4">
-                          <div className="bg-dark-800/80 rounded-lg p-2.5">
-                            <p className="text-[9px] text-gray-500 uppercase">Period High</p>
-                            <p className="text-sm font-bold text-gain">${historyData.period_high}</p>
-                          </div>
-                          <div className="bg-dark-800/80 rounded-lg p-2.5">
-                            <p className="text-[9px] text-gray-500 uppercase">Period Low</p>
-                            <p className="text-sm font-bold text-loss">${historyData.period_low}</p>
-                          </div>
-                          <div className="bg-dark-800/80 rounded-lg p-2.5">
-                            <p className="text-[9px] text-gray-500 uppercase">Avg Price</p>
-                            <p className="text-sm font-bold">${historyData.average_price}</p>
-                          </div>
-                          <div className="bg-dark-800/80 rounded-lg p-2.5">
-                            <p className="text-[9px] text-gray-500 uppercase">Avg Volume</p>
-                            <p className="text-sm font-bold">{historyData.average_volume?.toLocaleString()}</p>
-                          </div>
-                        </div>
-                      </>
-                    ) : null}
-                  </div>
-
-                  {/* 52-Week Range */}
-                  <div className="bg-dark-700/50 rounded-xl p-4 mb-6">
-                    <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-3">52-Week Range</p>
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs text-gray-400 w-16">${a.weekLow52}</span>
-                      <div className="flex-1 relative h-2 bg-dark-600 rounded-full">
-                        <div className="absolute h-full bg-gradient-to-r from-loss via-yellow-500 to-gain rounded-full" style={{ width: '100%' }} />
-                        <div
-                          className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full border-2 border-dark-900 shadow-lg"
-                          style={{ left: `${Math.min(Math.max(a.pricePosition, 2), 98)}%` }}
-                        />
-                      </div>
-                      <span className="text-xs text-gray-400 w-16 text-right">${a.weekHigh52}</span>
-                    </div>
-                  </div>
-
-                  {/* Fundamentals Grid */}
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
-                    <div className="bg-dark-700/50 rounded-lg p-3">
-                      <p className="text-[10px] text-gray-500 uppercase tracking-wider">P/E Ratio</p>
-                      <p className="text-sm font-bold mt-1">{a.peRatio}x</p>
-                    </div>
-                    <div className="bg-dark-700/50 rounded-lg p-3">
-                      <p className="text-[10px] text-gray-500 uppercase tracking-wider">Div. Yield</p>
-                      <p className="text-sm font-bold mt-1">{a.divYield}%</p>
-                    </div>
-                    <div className="bg-dark-700/50 rounded-lg p-3">
-                      <p className="text-[10px] text-gray-500 uppercase tracking-wider">Volatility</p>
-                      <p className="text-sm font-bold mt-1">{a.volatility}%</p>
-                    </div>
-                    <div className="bg-dark-700/50 rounded-lg p-3">
-                      <p className="text-[10px] text-gray-500 uppercase tracking-wider">Market Cap</p>
-                      <p className="text-sm font-bold mt-1">${a.marketCap}B</p>
-                    </div>
-                    <div className="bg-dark-700/50 rounded-lg p-3">
-                      <p className="text-[10px] text-gray-500 uppercase tracking-wider">Volume</p>
-                      <p className="text-sm font-bold mt-1">{a.volume}</p>
-                    </div>
-                    <div className="bg-dark-700/50 rounded-lg p-3">
-                      <p className="text-[10px] text-gray-500 uppercase tracking-wider">Risk</p>
-                      <p className={`text-sm font-bold mt-1 ${a.riskColor}`}>{a.riskLabel}</p>
-                    </div>
-                  </div>
-
-                  {/* Investment Scenarios */}
-                  <div className="bg-dark-700/30 rounded-xl p-4">
-                    <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-3">If You Invest Today</p>
-                    <div className="grid grid-cols-3 gap-4">
-                      {[500, 1000, 5000].map((amt) => {
-                        const shares = Math.floor(amt / data.current_price);
-                        const invested = shares * data.current_price;
-                        const futureVal = invested * (1 + parseFloat(a.baseReturn) / 100);
-                        const profit = futureVal - invested;
-                        return (
-                          <div key={amt} className="bg-dark-800 rounded-lg p-3 border border-dark-600/30">
-                            <p className="text-xs text-gray-400 mb-2">${amt.toLocaleString()} invested</p>
-                            <p className="text-xs text-gray-500">{shares} shares @ ${data.current_price}</p>
-                            <p className="text-sm font-bold text-gain mt-2">+${profit.toFixed(2)}</p>
-                            <p className="text-[10px] text-gray-500">Projected profit</p>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
+                <StockAnalysisPanel
+                  symbol={selectedStock}
+                  stockData={data}
+                  analysisData={a}
+                  hData={historyData}
+                  hRange={historyRange}
+                  hLoading={historyLoading}
+                  onRangeChange={setHistoryRange}
+                  onClose={() => setSelectedStock(null)}
+                  idPrefix="market"
+                />
               );
             })()}
           </div>
