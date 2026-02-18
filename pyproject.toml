@@ -1,3 +1,9 @@
+[project]
+name = "asx-ai-investment-platform"
+version = "1.0.0"
+description = "Enterprise AI-powered investment advisor for ASX stocks"
+requires-python = ">=3.11"
+
 [tool.poetry]
 name = "asx-ai-investment-platform"
 version = "1.0.0"
