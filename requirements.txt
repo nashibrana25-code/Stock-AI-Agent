@@ -1,15 +1,1 @@
-# API dependencies (Vercel serverless)
-fastapi
-pydantic
-uvicorn
 
-# Full project dependencies (GitHub Actions)
-pydantic-settings
-loguru
-aiohttp
-yfinance
-pandas
-numpy
-python-dotenv
-schedule
-requests

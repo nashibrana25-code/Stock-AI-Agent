@@ -1,0 +1,11 @@
+fastapi
+pydantic
+pydantic-settings
+loguru
+aiohttp
+yfinance
+pandas
+numpy
+python-dotenv
+schedule
+requests

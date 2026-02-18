@@ -1,58 +1,7 @@
-"""
-ASX AI Investment Platform - Vercel Serverless API
-Self-contained handler for Vercel deployment.
-"""
+from http.server import BaseHTTPRequestHandler
+import json
 from datetime import datetime
-from typing import Optional
-
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-
-app = FastAPI(
-    title="ASX AI Investment Platform",
-    description="AI-powered ASX stock recommendations",
-    version="1.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# --- Models ---
-
-class RecommendationRequest(BaseModel):
-    total_capital: float = 1000
-    risk_tolerance: str = "moderate"
-    investment_strategy: str = "balanced"
-    min_diversification: int = 3
-    max_single_stock_percentage: float = 0.30
-
-class StockRecommendation(BaseModel):
-    symbol: str
-    company_name: str
-    current_price: float
-    target_price: float
-    predicted_return: float
-    confidence_score: float
-    recommended_allocation: float
-    recommended_shares: int
-    reasoning: str
-
-class PortfolioResponse(BaseModel):
-    total_investment: float
-    expected_return: float
-    risk_level: str
-    summary: str
-    recommendations: list
-
-# --- ASX Stock Data ---
+from urllib.parse import urlparse
 
 ASX_STOCKS = {
     "CBA.AX": {"name": "Commonwealth Bank", "sector": "Financials", "price": 118.50},
@@ -72,9 +21,8 @@ ASX_STOCKS = {
     "WDS.AX": {"name": "Woodside Energy", "sector": "Energy", "price": 25.80},
 }
 
-# --- Capital tier logic ---
 
-def get_tier(capital: float):
+def get_tier(capital):
     if capital <= 500:
         return 1, 1, 0.5
     elif capital <= 2000:
@@ -84,100 +32,136 @@ def get_tier(capital: float):
     else:
         return 4, 15, 0.8
 
-def generate_recommendations(req: RecommendationRequest) -> PortfolioResponse:
-    capital = max(50, min(10000, req.total_capital))
-    tier, max_positions, max_risk = get_tier(capital)
 
-    strategy_multipliers = {
-        "conservative": 0.7, "balanced": 1.0, "growth": 1.3, "aggressive": 1.5,
-    }
-    risk_multipliers = {
-        "very_low": 0.5, "low": 0.7, "moderate": 1.0, "high": 1.3, "very_high": 1.5,
-    }
-    multiplier = strategy_multipliers.get(req.investment_strategy, 1.0)
-    risk_mult = risk_multipliers.get(req.risk_tolerance, 1.0)
+def get_stocks():
+    result = {}
+    for sym, info in ASX_STOCKS.items():
+        result[sym] = {
+            "symbol": sym,
+            "company_name": info["name"],
+            "sector": info["sector"],
+            "current_price": info["price"],
+        }
+    return result
+
+
+def generate_recommendations(body):
+    capital = float(body.get("total_capital", 1000))
+    risk_tolerance = body.get("risk_tolerance", "moderate")
+    investment_strategy = body.get("investment_strategy", "balanced")
+
+    if capital < 50 or capital > 10000:
+        return {"error": "Capital must be between $50 and $10,000"}, 400
+
+    tier, max_pos, max_risk = get_tier(capital)
+
+    strat_mult = {"conservative": 0.7, "balanced": 1.0, "growth": 1.3, "aggressive": 1.5}
+    risk_mult_map = {"very_low": 0.5, "low": 0.7, "moderate": 1.0, "high": 1.3, "very_high": 1.5}
+    sm = strat_mult.get(investment_strategy, 1.0)
+    rm = risk_mult_map.get(risk_tolerance, 1.0)
 
     scored = []
-    for symbol, info in ASX_STOCKS.items():
-        base_return = 8.0 + (hash(symbol) % 15)
-        confidence = 0.60 + (hash(symbol + "conf") % 30) / 100
-        risk_score = 0.3 + (hash(symbol + "risk") % 40) / 100
+    for sym, info in ASX_STOCKS.items():
+        base_return = 8.0 + (hash(sym) % 15)
+        confidence = 0.60 + (hash(sym + "c") % 30) / 100
+        risk_score = 0.3 + (hash(sym + "r") % 40) / 100
         if risk_score > max_risk:
             continue
-        adj_return = base_return * multiplier * risk_mult
-        score = adj_return * confidence
+        adj_return = round(base_return * sm * rm, 1)
         scored.append({
-            "symbol": symbol, "name": info["name"], "sector": info["sector"],
-            "price": info["price"], "predicted_return": round(adj_return, 1),
-            "confidence": round(confidence, 2), "risk_score": round(risk_score, 2),
-            "score": score,
+            "symbol": sym,
+            "name": info["name"],
+            "sector": info["sector"],
+            "price": info["price"],
+            "predicted_return": adj_return,
+            "confidence": round(confidence, 2),
+            "risk_score": round(risk_score, 2),
+            "score": adj_return * confidence,
         })
 
     scored.sort(key=lambda x: x["score"], reverse=True)
-    picks = scored[:max_positions]
+    picks = scored[:max_pos]
 
     total_score = sum(p["score"] for p in picks) or 1
     recs = []
     total_invested = 0
 
-    for pick in picks:
-        weight = pick["score"] / total_score
-        allocation = round(capital * weight, 2)
-        shares = max(1, int(allocation / pick["price"]))
-        actual_cost = round(shares * pick["price"], 2)
-        if actual_cost > capital - total_invested:
-            shares = max(1, int((capital - total_invested) / pick["price"]))
-            actual_cost = round(shares * pick["price"], 2)
-        if actual_cost <= 0 or total_invested + actual_cost > capital:
+    for p in picks:
+        alloc = capital * p["score"] / total_score
+        shares = max(1, int(alloc / p["price"]))
+        cost = round(shares * p["price"], 2)
+        if total_invested + cost > capital:
+            shares = max(1, int((capital - total_invested) / p["price"]))
+            cost = round(shares * p["price"], 2)
+        if cost <= 0 or total_invested + cost > capital:
             continue
-        total_invested += actual_cost
-        target = round(pick["price"] * (1 + pick["predicted_return"] / 100), 2)
-        recs.append(StockRecommendation(
-            symbol=pick["symbol"], company_name=pick["name"],
-            current_price=pick["price"], target_price=target,
-            predicted_return=pick["predicted_return"],
-            confidence_score=pick["confidence"],
-            recommended_allocation=actual_cost,
-            recommended_shares=shares,
-            reasoning=f"{pick['name']} ({pick['sector']}) - AI confidence {pick['confidence']*100:.0f}%, "
-                      f"risk score {pick['risk_score']}, predicted return {pick['predicted_return']}%. "
-                      f"Suitable for {req.risk_tolerance} risk with {req.investment_strategy} strategy.",
-        ))
+        total_invested += cost
+        target = round(p["price"] * (1 + p["predicted_return"] / 100), 2)
+        conf_pct = int(p["confidence"] * 100)
+        recs.append({
+            "symbol": p["symbol"],
+            "company_name": p["name"],
+            "current_price": p["price"],
+            "target_price": target,
+            "predicted_return": p["predicted_return"],
+            "confidence_score": p["confidence"],
+            "recommended_allocation": cost,
+            "recommended_shares": shares,
+            "reasoning": p["name"] + " (" + p["sector"] + ") - confidence " + str(conf_pct) + "%, risk " + str(p["risk_score"]) + ", return " + str(p["predicted_return"]) + "%",
+        })
 
-    avg_return = round(sum(r.predicted_return for r in recs) / len(recs), 1) if recs else 0
-    return PortfolioResponse(
-        total_investment=round(total_invested, 2),
-        expected_return=avg_return,
-        risk_level=req.risk_tolerance,
-        summary=f"Tier {tier} portfolio: {len(recs)} ASX stocks for ${capital:.0f} "
-                f"({req.risk_tolerance} risk, {req.investment_strategy} strategy). "
-                f"Expected return: {avg_return}%.",
-        recommendations=[r.dict() for r in recs],
-    )
+    avg_return = round(sum(r["predicted_return"] for r in recs) / len(recs), 1) if recs else 0
 
-# --- Routes ---
+    return {
+        "total_investment": round(total_invested, 2),
+        "expected_return": avg_return,
+        "risk_level": risk_tolerance,
+        "summary": "Tier " + str(tier) + ": " + str(len(recs)) + " ASX stocks for $" + str(int(capital)) + " (" + risk_tolerance + " risk, " + investment_strategy + "). Expected return: " + str(avg_return) + "%.",
+        "recommendations": recs,
+    }, 200
 
-@app.get("/")
-async def root():
-    return {"name": "ASX AI Investment Platform", "status": "online", "version": "1.0.0", "timestamp": datetime.utcnow().isoformat()}
 
-@app.get("/health")
-async def health():
-    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
+class handler(BaseHTTPRequestHandler):
 
-@app.get("/api/v1/stocks")
-async def get_stocks():
-    return {s: {"symbol": s, "company_name": i["name"], "sector": i["sector"], "current_price": i["price"]} for s, i in ASX_STOCKS.items()}
+    def _send_json(self, data, status=200):
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
+        self.wfile.write(json.dumps(data).encode())
 
-@app.post("/api/v1/recommendations/generate")
-async def create_recommendations(req: RecommendationRequest):
-    if req.total_capital < 50 or req.total_capital > 10000:
-        raise HTTPException(status_code=400, detail="Capital must be between $50 and $10,000")
-    return generate_recommendations(req)
+    def do_OPTIONS(self):
+        self._send_json({})
 
-@app.get("/api/v1/recommendations/sample")
-async def sample_recommendations():
-    return generate_recommendations(RecommendationRequest())
+    def do_GET(self):
+        path = urlparse(self.path).path.rstrip("/") or "/"
 
-# Vercel handler
-handler = app
+        if path == "/":
+            self._send_json({
+                "name": "ASX AI Investment Platform",
+                "status": "online",
+                "version": "1.0.0",
+                "timestamp": str(datetime.utcnow()),
+            })
+        elif path == "/health":
+            self._send_json({"status": "healthy", "timestamp": str(datetime.utcnow())})
+        elif path == "/api/v1/stocks":
+            self._send_json(get_stocks())
+        else:
+            self._send_json({"error": "Not found"}, 404)
+
+    def do_POST(self):
+        path = urlparse(self.path).path.rstrip("/")
+
+        if path == "/api/v1/recommendations/generate":
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = {}
+            if content_length > 0:
+                raw = self.rfile.read(content_length)
+                body = json.loads(raw)
+            data, status = generate_recommendations(body)
+            self._send_json(data, status)
+        else:
+            self._send_json({"error": "Not found"}, 404)

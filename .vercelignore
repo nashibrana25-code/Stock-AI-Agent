@@ -1,0 +1,10 @@
+node_modules
+.git
+frontend
+services
+data-ingestion
+ai-agent
+*.bak
+__pycache__
+.env
+hello.txt
