@@ -1,10 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { io } from 'socket.io-client';
 import axios from 'axios';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-const WS_URL = process.env.REACT_APP_WS_URL || 'ws://localhost:8000';
+const API_URL = 'https://asx-ai-investment-platform.vercel.app';
 
 function App() {
   const [capital, setCapital] = useState(1000);
@@ -15,31 +12,30 @@ function App() {
   const [stocks, setStocks] = useState({});
   const [connected, setConnected] = useState(false);
 
-  // WebSocket connection for real-time updates
+  // Check API connection on load
   useEffect(() => {
-    const socket = io(WS_URL);
+    const checkConnection = async () => {
+      try {
+        const response = await axios.get(`${API_URL}/health`);
+        if (response.data.status === 'healthy') {
+          setConnected(true);
+        }
+      } catch (err) {
+        setConnected(false);
+      }
+    };
+    checkConnection();
 
-    socket.on('connect', () => {
-      console.log('Connected to AI Agent');
-      setConnected(true);
-    });
-
-    socket.on('stock_update', (data) => {
-      setStocks(prev => ({
-        ...prev,
-        [data.symbol]: data.data
-      }));
-    });
-
-    socket.on('recommendation_update', (data) => {
-      console.log('New recommendations:', data);
-    });
-
-    socket.on('disconnect', () => {
-      setConnected(false);
-    });
-
-    return () => socket.close();
+    // Load stock data
+    const loadStocks = async () => {
+      try {
+        const response = await axios.get(`${API_URL}/api/v1/stocks`);
+        setStocks(response.data);
+      } catch (err) {
+        console.error('Error loading stocks:', err);
+      }
+    };
+    loadStocks();
   }, []);
 
   const generateRecommendation = async () => {
@@ -231,15 +227,14 @@ function App() {
 
         {/* Live Market Data */}
         <div className="mt-8 bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-2xl font-semibold mb-4">Live Market Updates</h2>
+          <h2 className="text-2xl font-semibold mb-4">ASX Market Overview</h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {Object.entries(stocks).slice(0, 8).map(([symbol, data]) => (
               <div key={symbol} className="border border-gray-200 rounded-lg p-3">
-                <p className="font-semibold">{symbol}</p>
-                <p className="text-xl">${data?.price || '---'}</p>
-                <p className={`text-sm ${data?.change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {data?.change >= 0 ? '+' : ''}{data?.change || 0}%
-                </p>
+                <p className="font-semibold text-sm">{symbol}</p>
+                <p className="text-xs text-gray-500">{data?.company_name || ''}</p>
+                <p className="text-xl font-bold mt-1">${data?.current_price || '---'}</p>
+                <p className="text-xs text-gray-500">{data?.sector || ''}</p>
               </div>
             ))}
           </div>
