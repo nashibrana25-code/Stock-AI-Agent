@@ -1,6 +1,5 @@
 node_modules
 .git
-frontend
 services
 data-ingestion
 ai-agent
