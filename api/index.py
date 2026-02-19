@@ -5,7 +5,165 @@ from datetime import datetime
 from urllib.parse import urlparse, parse_qs
 import ssl
 import time
+import os
 from concurrent.futures import ThreadPoolExecutor
+
+# ============================================================
+# AI MODEL CONFIG (Groq - Llama 3.3 70B, free tier)
+# ============================================================
+GROQ_API_KEY = os.environ.get('GROQ_API_KEY', '').strip()
+GROQ_MODEL = 'llama-3.3-70b-versatile'
+GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
+AI_CACHE_TTL = 900  # 15 min cache for AI analysis (save rate limits)
+_ai_cache = {}
+
+
+def _call_ai(prompt, max_tokens=300):
+    """Call Groq AI API and return the response text."""
+    if not GROQ_API_KEY:
+        return None
+    body = json.dumps({
+        'model': GROQ_MODEL,
+        'messages': [
+            {'role': 'system', 'content': 'You are an expert ASX stock market analyst. Always respond with valid JSON only, no markdown, no code fences.'},
+            {'role': 'user', 'content': prompt}
+        ],
+        'temperature': 0.3,
+        'max_tokens': max_tokens,
+    }).encode()
+    req = urllib.request.Request(GROQ_URL, data=body, headers={
+        'Authorization': 'Bearer ' + GROQ_API_KEY,
+        'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    })
+    try:
+        resp = urllib.request.urlopen(req, timeout=8, context=_ssl_ctx)
+        data = json.loads(resp.read())
+        text = data['choices'][0]['message']['content'].strip()
+        # Strip markdown code fences if present
+        if text.startswith('```'):
+            text = text.split('\n', 1)[-1]
+        if text.endswith('```'):
+            text = text.rsplit('```', 1)[0]
+        text = text.strip()
+        return text
+    except urllib.error.HTTPError as e:
+        _ai_cache['_last_error'] = (time.time(), 'HTTP ' + str(e.code) + ': ' + str(e.read()[:200]))
+        return None
+    except Exception as e:
+        _ai_cache['_last_error'] = (time.time(), str(type(e).__name__) + ': ' + str(e))
+        return None
+
+
+def _get_ai_cached(key, fetcher):
+    """Cache AI responses for 15 minutes."""
+    now = time.time()
+    if key in _ai_cache:
+        ts, data = _ai_cache[key]
+        if now - ts < AI_CACHE_TTL:
+            return data
+    data = fetcher()
+    if data is not None:
+        _ai_cache[key] = (now, data)
+    return data
+
+
+def ai_analyze_stock(symbol, quote_data):
+    """Get AI-powered analysis for a single stock using real market data."""
+    if not GROQ_API_KEY or not quote_data or not quote_data.get('price'):
+        return None
+
+    def _fetch():
+        info = ASX_STOCKS.get(symbol, {})
+        price = quote_data['price']
+        prev = quote_data.get('previous_close', price)
+        w52h = quote_data.get('fifty_two_week_high', price)
+        w52l = quote_data.get('fifty_two_week_low', price)
+        vol = quote_data.get('volume', 0)
+        change = round((price - prev) / prev * 100, 2) if prev else 0
+
+        prompt = (
+            'Analyze ' + symbol + ' (' + (info.get('name', symbol)) + ', ' + info.get('sector', 'Unknown') + ' sector) for ASX investment.\n'
+            'LIVE DATA: Price=$' + str(round(price, 2)) + ', Previous Close=$' + str(round(prev, 2)) +
+            ', Daily Change=' + str(change) + '%, Volume=' + str(vol) +
+            ', 52-Week High=$' + str(round(w52h, 2)) + ', 52-Week Low=$' + str(round(w52l, 2)) + '.\n'
+            'Reply with ONLY this JSON (no other text):\n'
+            '{"sentiment":"bullish/neutral/bearish",'
+            '"confidence":0.0-1.0,'
+            '"target_price":number,'
+            '"risk_level":"low/medium/high",'
+            '"key_factors":["factor1","factor2","factor3"],'
+            '"summary":"2-3 sentence analysis",'
+            '"recommendation":"strong_buy/buy/hold/sell/strong_sell"}'
+        )
+        text = _call_ai(prompt, max_tokens=250)
+        if not text:
+            return None
+        try:
+            result = json.loads(text)
+            result['ai_model'] = GROQ_MODEL
+            result['analyzed_at'] = str(datetime.utcnow())
+            return result
+        except Exception:
+            return None
+
+    return _get_ai_cached('ai_' + symbol, _fetch)
+
+
+def ai_market_summary(stocks_data):
+    """Get AI-powered market summary for all stocks."""
+    if not GROQ_API_KEY:
+        return None
+
+    def _fetch():
+        # Build compact market snapshot for the prompt
+        gainers = []
+        losers = []
+        for sym, entry in stocks_data.items():
+            if not entry or entry.get('current_price', 0) == 0:
+                continue
+            chg = entry.get('change_pct', 0)
+            name = sym.replace('.AX', '')
+            if chg > 0:
+                gainers.append((name, chg))
+            elif chg < 0:
+                losers.append((name, chg))
+        gainers.sort(key=lambda x: x[1], reverse=True)
+        losers.sort(key=lambda x: x[1])
+
+        top5_gain = ', '.join([g[0] + ' +' + str(g[1]) + '%' for g in gainers[:5]])
+        top5_loss = ', '.join([l[0] + ' ' + str(l[1]) + '%' for l in losers[:5]])
+        total = len(stocks_data)
+        green = len(gainers)
+        red = len(losers)
+
+        prompt = (
+            'Provide ASX market summary. ' + str(total) + ' stocks tracked: ' +
+            str(green) + ' up, ' + str(red) + ' down.\n'
+            'Top gainers: ' + top5_gain + '\n'
+            'Top losers: ' + top5_loss + '\n'
+            'Reply with ONLY this JSON:\n'
+            '{"market_mood":"bullish/neutral/bearish",'
+            '"mood_score":0.0-1.0,'
+            '"headline":"one catchy headline",'
+            '"summary":"3-4 sentence market analysis",'
+            '"sectors_to_watch":["sector1","sector2"],'
+            '"outlook":"positive/mixed/negative"}'
+        )
+        text = _call_ai(prompt, max_tokens=250)
+        if not text:
+            return None
+        try:
+            result = json.loads(text)
+            result['ai_model'] = GROQ_MODEL
+            result['analyzed_at'] = str(datetime.utcnow())
+            result['stocks_analyzed'] = total
+            return result
+        except Exception:
+            return None
+
+    return _get_ai_cached('ai_market_summary', _fetch)
+
 
 # ============================================================
 # ASX STOCK UNIVERSE - tickers and sectors (prices fetched LIVE)
@@ -444,13 +602,36 @@ def generate_recommendations(body):
 
     avg_return = round(sum(r['predicted_return'] for r in recs) / len(recs), 1) if recs else 0
 
+    # Generate AI portfolio summary if available
+    ai_summary = None
+    if GROQ_API_KEY and recs:
+        picks_text = ', '.join([r['symbol'].replace('.AX', '') + ' $' + str(r['current_price']) for r in recs])
+        prompt = (
+            'Portfolio recommendation for $' + str(int(capital)) + ' capital, ' + risk_tolerance + ' risk, ' + investment_strategy + ' strategy.\n'
+            'Picks: ' + picks_text + '. Expected return: ' + str(avg_return) + '%.\n'
+            'Reply ONLY valid JSON:\n'
+            '{"portfolio_rating":"excellent/good/fair/poor",'
+            '"reasoning":"2-3 sentences explaining why these picks work together",'
+            '"risk_assessment":"1 sentence on portfolio risk",'
+            '"tip":"1 actionable tip for this investor"}'
+        )
+        ai_text = _call_ai(prompt, max_tokens=200)
+        if ai_text:
+            try:
+                ai_summary = json.loads(ai_text)
+                ai_summary['ai_model'] = GROQ_MODEL
+            except Exception:
+                pass
+
     return {
         'total_investment': round(total_invested, 2),
         'expected_return': avg_return,
         'risk_level': risk_tolerance,
         'summary': 'Tier ' + str(tier) + ': ' + str(len(recs)) + ' ASX stocks for $' + str(int(capital)) + ' (' + risk_tolerance + ' risk, ' + investment_strategy + '). Expected return: ' + str(avg_return) + '%. Prices are LIVE from Yahoo Finance.',
+        'ai_portfolio_analysis': ai_summary,
         'recommendations': recs,
         'data_source': 'yahoo_finance',
+        'ai_enabled': bool(GROQ_API_KEY),
         'generated_at': str(datetime.utcnow()),
     }, 200
 
@@ -478,14 +659,18 @@ class handler(BaseHTTPRequestHandler):
             self._send_json({
                 'name': 'ASX AI Investment Platform',
                 'status': 'online',
-                'version': '2.0.0',
+                'version': '3.0.0',
                 'data_source': 'yahoo_finance (real-time)',
+                'ai_model': GROQ_MODEL if GROQ_API_KEY else 'none',
+                'ai_enabled': bool(GROQ_API_KEY),
                 'timestamp': str(datetime.utcnow()),
             })
         elif path == '/health':
             self._send_json({
                 'status': 'healthy',
                 'data_source': 'yahoo_finance',
+                'ai_enabled': bool(GROQ_API_KEY),
+                'ai_model': GROQ_MODEL if GROQ_API_KEY else 'none',
                 'timestamp': str(datetime.utcnow()),
             })
         elif path == '/api/v1/stocks':
@@ -511,6 +696,38 @@ class handler(BaseHTTPRequestHandler):
                 self._send_json(data)
             else:
                 self._send_json({'error': 'Stock not found or Yahoo Finance unavailable'}, 404)
+        elif path == '/api/v1/ai/analyze' and params.get('symbol'):
+            symbol = params.get('symbol', [''])[0]
+            if not symbol.endswith('.AX'):
+                symbol = symbol + '.AX'
+            quote = fetch_live_quote(symbol)
+            if not quote:
+                self._send_json({'error': 'Could not fetch stock data'}, 404)
+            else:
+                ai_result = ai_analyze_stock(symbol, quote)
+                info = ASX_STOCKS.get(symbol, {})
+                price = quote.get('price', 0)
+                prev = quote.get('previous_close', price)
+                last_err = _ai_cache.get('_last_error')
+                self._send_json({
+                    'symbol': symbol,
+                    'company_name': quote.get('long_name') or info.get('name', symbol),
+                    'current_price': round(price, 2),
+                    'change_pct': round((price - prev) / prev * 100, 2) if prev else 0,
+                    'ai_analysis': ai_result,
+                    'ai_enabled': bool(GROQ_API_KEY),
+                    'ai_error': last_err[1] if last_err and not ai_result else None,
+                    'data_source': 'yahoo_finance',
+                })
+        elif path == '/api/v1/ai/market-summary':
+            stocks_data = get_stocks()
+            summary = ai_market_summary(stocks_data)
+            self._send_json({
+                'market_summary': summary,
+                'ai_enabled': bool(GROQ_API_KEY),
+                'stocks_count': len(stocks_data),
+                'data_source': 'yahoo_finance',
+            })
         else:
             self._send_json({'error': 'Not found'}, 404)
 

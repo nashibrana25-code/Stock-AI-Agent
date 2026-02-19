@@ -31,6 +31,11 @@ function App() {
   const [hasSearched, setHasSearched] = useState(false);
   const [dataSource, setDataSource] = useState('');
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [aiEnabled, setAiEnabled] = useState(false);
+  const [aiAnalysis, setAiAnalysis] = useState({});
+  const [aiLoading, setAiLoading] = useState({});
+  const [marketSummary, setMarketSummary] = useState(null);
+  const [marketSummaryLoading, setMarketSummaryLoading] = useState(false);
   const searchInputRef = useRef(null);
   const searchTimerRef = useRef(null);
 
@@ -41,6 +46,7 @@ function App() {
         if (response.data.status === 'healthy') {
           setConnected(true);
           setDataSource(response.data.data_source || '');
+          setAiEnabled(response.data.ai_enabled || false);
         }
       } catch { setConnected(false); }
     };
@@ -123,6 +129,32 @@ function App() {
     }, 300);
     return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
   }, [searchQuery]);
+
+  // Fetch AI analysis for a specific stock
+  const fetchAiAnalysis = async (symbol) => {
+    if (!aiEnabled || aiAnalysis[symbol] || aiLoading[symbol]) return;
+    setAiLoading(prev => ({ ...prev, [symbol]: true }));
+    try {
+      const response = await axios.get(`${API_URL}/api/v1/ai/analyze?symbol=${symbol}`);
+      if (response.data.ai_analysis) {
+        setAiAnalysis(prev => ({ ...prev, [symbol]: response.data.ai_analysis }));
+      }
+    } catch (err) { console.error('AI analysis error:', err); }
+    finally { setAiLoading(prev => ({ ...prev, [symbol]: false })); }
+  };
+
+  // Fetch AI market summary
+  const fetchMarketSummary = async () => {
+    if (!aiEnabled || marketSummary || marketSummaryLoading) return;
+    setMarketSummaryLoading(true);
+    try {
+      const response = await axios.get(`${API_URL}/api/v1/ai/market-summary`);
+      if (response.data.market_summary) {
+        setMarketSummary(response.data.market_summary);
+      }
+    } catch (err) { console.error('Market summary error:', err); }
+    finally { setMarketSummaryLoading(false); }
+  };
 
   const generateRecommendation = async () => {
     setLoading(true);
@@ -266,6 +298,104 @@ function App() {
     </span>
   );
 
+  const AiBadge = () => (
+    <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold bg-purple-500/10 text-purple-400 px-2 py-0.5 rounded-full border border-purple-500/20">
+      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+      AI
+    </span>
+  );
+
+  // AI Analysis Section component for StockAnalysisPanel
+  const AiInsightSection = ({ symbol }) => {
+    const analysis = aiAnalysis[symbol];
+    const loading = aiLoading[symbol];
+
+    React.useEffect(() => {
+      if (aiEnabled && symbol && !aiAnalysis[symbol] && !aiLoading[symbol]) {
+        fetchAiAnalysis(symbol);
+      }
+    }, [symbol]);
+
+    if (!aiEnabled) return null;
+
+    if (loading) {
+      return (
+        <div className="bg-purple-500/5 border border-purple-500/20 rounded-xl p-4 mb-6">
+          <div className="flex items-center gap-2">
+            <svg className="animate-spin h-4 w-4 text-purple-400" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            <span className="text-xs text-purple-400">AI analyzing {symbol.replace('.AX', '')}...</span>
+          </div>
+        </div>
+      );
+    }
+
+    if (!analysis) return null;
+
+    const sentimentColors = {
+      bullish: 'text-gain bg-gain/10 border-gain/20',
+      neutral: 'text-yellow-400 bg-yellow-400/10 border-yellow-400/20',
+      bearish: 'text-loss bg-loss/10 border-loss/20',
+    };
+    const recColors = {
+      strong_buy: 'text-gain bg-gain/10',
+      buy: 'text-emerald-400 bg-emerald-400/10',
+      hold: 'text-yellow-400 bg-yellow-400/10',
+      sell: 'text-orange-400 bg-orange-400/10',
+      strong_sell: 'text-loss bg-loss/10',
+    };
+
+    return (
+      <div className="bg-purple-500/5 border border-purple-500/20 rounded-xl p-4 mb-6">
+        <div className="flex items-center gap-2 mb-3">
+          <AiBadge />
+          <span className="text-[10px] text-gray-500 uppercase tracking-wider">AI Analysis</span>
+          <span className="text-[9px] text-gray-600 ml-auto">{analysis.ai_model}</span>
+        </div>
+        <div className="flex flex-wrap gap-2 mb-3">
+          <span className={`text-[10px] px-2 py-1 rounded-md font-semibold border ${sentimentColors[analysis.sentiment] || sentimentColors.neutral}`}>
+            {(analysis.sentiment || 'neutral').toUpperCase()}
+          </span>
+          <span className={`text-[10px] px-2 py-1 rounded-md font-semibold ${recColors[analysis.recommendation] || recColors.hold}`}>
+            {(analysis.recommendation || 'hold').replace('_', ' ').toUpperCase()}
+          </span>
+          {analysis.risk_level && (
+            <span className={`text-[10px] px-2 py-1 rounded-md font-semibold ${
+              analysis.risk_level === 'low' ? 'text-gain bg-gain/10' :
+              analysis.risk_level === 'high' ? 'text-loss bg-loss/10' :
+              'text-yellow-400 bg-yellow-400/10'
+            }`}>
+              {analysis.risk_level.toUpperCase()} RISK
+            </span>
+          )}
+          {analysis.confidence && (
+            <span className="text-[10px] px-2 py-1 rounded-md font-semibold text-purple-400 bg-purple-400/10">
+              {(analysis.confidence * 100).toFixed(0)}% CONFIDENCE
+            </span>
+          )}
+        </div>
+        {analysis.target_price && (
+          <div className="flex items-center gap-4 mb-3">
+            <div>
+              <span className="text-[9px] text-gray-500 uppercase">AI Target Price</span>
+              <p className="text-lg font-bold text-purple-400">${analysis.target_price}</p>
+            </div>
+          </div>
+        )}
+        <p className="text-sm text-gray-300 leading-relaxed mb-3">{analysis.summary}</p>
+        {analysis.key_factors && analysis.key_factors.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {analysis.key_factors.map((factor, i) => (
+              <span key={i} className="text-[10px] text-gray-400 bg-dark-700 px-2 py-1 rounded-md">{factor}</span>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const StockAnalysisPanel = ({ symbol, stockData, analysisData, hData, hRange, hLoading, onRangeChange, onClose, idPrefix }) => {
     const a = analysisData;
     const data = stockData;
@@ -400,6 +530,9 @@ function App() {
           </div>
         </div>
 
+        {/* AI Analysis */}
+        <AiInsightSection symbol={symbol} />
+
         {/* Fundamentals Grid */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
           <div className="bg-dark-700/50 rounded-lg p-3">
@@ -471,6 +604,12 @@ function App() {
                 <span className="text-[10px] font-semibold text-gain uppercase tracking-wider">Live Data</span>
               </div>
             )}
+            {aiEnabled && (
+              <div className="hidden md:flex items-center gap-1.5 bg-purple-500/10 border border-purple-500/20 rounded-full px-3 py-1">
+                <svg className="w-3 h-3 text-purple-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+                <span className="text-[10px] font-semibold text-purple-400 uppercase tracking-wider">AI Active</span>
+              </div>
+            )}
             <div className="hidden md:flex items-center gap-1 text-sm">
               <div className={`w-2 h-2 rounded-full ${connected ? 'bg-gain animate-pulse' : 'bg-loss'}`} />
               <span className="text-gray-400">{connected ? 'Connected' : 'Offline'}</span>
@@ -489,7 +628,7 @@ function App() {
             </span>
           </h1>
           <p className="text-gray-400 text-lg max-w-xl">
-            Real-time ASX stock data powered by Yahoo Finance. AI recommendations tailored to your capital and risk appetite.
+            Real-time ASX stock data powered by Yahoo Finance. AI analysis by Llama 3.3 70B via Groq — tailored to your capital and risk appetite.
           </p>
           {lastUpdated && (
             <p className="text-xs text-gray-600 mt-2 flex items-center gap-1.5">
@@ -626,6 +765,31 @@ function App() {
                   <p className="text-sm text-gray-400">{recommendations.summary}</p>
                 </div>
 
+                {/* AI Portfolio Analysis */}
+                {recommendations.ai_portfolio_analysis && (
+                  <div className="bg-purple-500/5 border border-purple-500/20 rounded-xl p-5">
+                    <div className="flex items-center gap-2 mb-3">
+                      <AiBadge />
+                      <span className="text-[10px] text-gray-500 uppercase tracking-wider">AI Portfolio Analysis</span>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-md font-semibold ml-auto ${
+                        recommendations.ai_portfolio_analysis.portfolio_rating === 'excellent' ? 'text-gain bg-gain/10' :
+                        recommendations.ai_portfolio_analysis.portfolio_rating === 'good' ? 'text-emerald-400 bg-emerald-400/10' :
+                        recommendations.ai_portfolio_analysis.portfolio_rating === 'poor' ? 'text-loss bg-loss/10' :
+                        'text-yellow-400 bg-yellow-400/10'
+                      }`}>
+                        {(recommendations.ai_portfolio_analysis.portfolio_rating || 'good').toUpperCase()}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-300 leading-relaxed mb-2">{recommendations.ai_portfolio_analysis.reasoning}</p>
+                    <p className="text-sm text-yellow-400/80 leading-relaxed mb-2">{recommendations.ai_portfolio_analysis.risk_assessment}</p>
+                    <div className="bg-dark-800 rounded-lg p-3 mt-2 border border-purple-500/10">
+                      <p className="text-[10px] text-purple-400 uppercase tracking-wider mb-1">AI Tip</p>
+                      <p className="text-sm text-gray-300">{recommendations.ai_portfolio_analysis.tip}</p>
+                    </div>
+                    <p className="text-[9px] text-gray-600 mt-2">Powered by {recommendations.ai_portfolio_analysis.ai_model}</p>
+                  </div>
+                )}
+
                 <div className="space-y-3">
                   {recommendations.recommendations?.map((stock, index) => {
                     const isExpanded = expandedRec === stock.symbol;
@@ -745,13 +909,65 @@ function App() {
 
         {activeTab === 'market' && (
           <div>
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
                 <h2 className="text-xl font-semibold">ASX Market Overview</h2>
                 <LiveBadge />
+                {aiEnabled && <AiBadge />}
               </div>
-              <span className="text-xs text-gray-500">{Object.keys(stocks).length} stocks &middot; Real-time prices &middot; Click for analysis</span>
+              <div className="flex items-center gap-3">
+                {aiEnabled && !marketSummary && !marketSummaryLoading && (
+                  <button onClick={fetchMarketSummary} className="text-[10px] text-purple-400 hover:text-purple-300 border border-purple-500/20 px-2.5 py-1 rounded-lg transition-all hover:bg-purple-500/10">
+                    Get AI Market Summary
+                  </button>
+                )}
+                <span className="text-xs text-gray-500">{Object.keys(stocks).length} stocks &middot; Real-time prices &middot; Click for analysis</span>
+              </div>
             </div>
+
+            {/* AI Market Summary */}
+            {marketSummaryLoading && (
+              <div className="bg-purple-500/5 border border-purple-500/20 rounded-xl p-4 mb-6 flex items-center gap-2">
+                <svg className="animate-spin h-4 w-4 text-purple-400" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                <span className="text-xs text-purple-400">AI is analyzing the ASX market...</span>
+              </div>
+            )}
+            {marketSummary && (
+              <div className="bg-purple-500/5 border border-purple-500/20 rounded-xl p-5 mb-6">
+                <div className="flex items-center gap-2 mb-3">
+                  <AiBadge />
+                  <span className="text-[10px] text-gray-500 uppercase tracking-wider">Market Intelligence</span>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-md font-semibold ml-auto ${
+                    marketSummary.market_mood === 'bullish' ? 'text-gain bg-gain/10' :
+                    marketSummary.market_mood === 'bearish' ? 'text-loss bg-loss/10' :
+                    'text-yellow-400 bg-yellow-400/10'
+                  }`}>
+                    {(marketSummary.market_mood || 'neutral').toUpperCase()}
+                  </span>
+                </div>
+                <h3 className="text-lg font-bold text-purple-300 mb-2">{marketSummary.headline}</h3>
+                <p className="text-sm text-gray-300 leading-relaxed mb-3">{marketSummary.summary}</p>
+                <div className="flex flex-wrap gap-2">
+                  {marketSummary.sectors_to_watch?.map((sector, i) => (
+                    <span key={i} className="text-[10px] text-purple-400 bg-purple-500/10 px-2 py-1 rounded-md border border-purple-500/20">
+                      Watch: {sector}
+                    </span>
+                  ))}
+                  <span className={`text-[10px] px-2 py-1 rounded-md font-semibold ${
+                    marketSummary.outlook === 'positive' ? 'text-gain bg-gain/10' :
+                    marketSummary.outlook === 'negative' ? 'text-loss bg-loss/10' :
+                    'text-yellow-400 bg-yellow-400/10'
+                  }`}>
+                    Outlook: {marketSummary.outlook || 'mixed'}
+                  </span>
+                </div>
+                <p className="text-[9px] text-gray-600 mt-3">Powered by {marketSummary.ai_model} &middot; {marketSummary.stocks_analyzed} stocks analyzed</p>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {Object.entries(stocks).map(([symbol, data]) => {
                 const a = getStockAnalysis(symbol, data);
