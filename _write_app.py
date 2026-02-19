@@ -1,4 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+#!/usr/bin/env python3
+import os
+
+content = r'''import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 
 const API_URL = 'https://asx-ai-investment-platform.vercel.app';
@@ -889,3 +892,8 @@ function App() {
 }
 
 export default App;
+'''
+
+with open('frontend/src/App.jsx', 'w', encoding='utf-8', newline='\n') as f:
+    f.write(content)
+print('App.jsx written successfully')
