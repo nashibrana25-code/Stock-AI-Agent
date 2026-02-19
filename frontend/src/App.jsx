@@ -756,60 +756,59 @@ function App() {
               {Object.entries(stocks).map(([symbol, data]) => {
                 const a = getStockAnalysis(symbol, data);
                 const changePct = data?.change_pct || parseFloat(a.dayChange) || 0;
+                const isSelected = selectedStock === symbol;
                 return (
-                  <div
-                    key={symbol}
-                    onClick={() => { setSelectedStock(selectedStock === symbol ? null : symbol); setHistoryRange('1M'); }}
-                    className={`bg-dark-800 border rounded-xl p-4 cursor-pointer transition-all ${
-                      selectedStock === symbol ? 'border-accent/50 ring-1 ring-accent/20' : 'border-dark-600/50 hover:border-dark-500'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <p className="font-bold text-sm">{symbol.replace('.AX', '')}</p>
-                          <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-semibold ${a.signalColor}`}>{a.signal}</span>
+                  <React.Fragment key={symbol}>
+                    <div
+                      onClick={() => { setSelectedStock(isSelected ? null : symbol); setHistoryRange('1M'); }}
+                      className={`bg-dark-800 border rounded-xl p-4 cursor-pointer transition-all ${
+                        isSelected ? 'border-accent/50 ring-1 ring-accent/20' : 'border-dark-600/50 hover:border-dark-500'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="font-bold text-sm">{symbol.replace('.AX', '')}</p>
+                            <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-semibold ${a.signalColor}`}>{a.signal}</span>
+                          </div>
+                          <p className="text-[11px] text-gray-500">{data?.company_name}</p>
                         </div>
-                        <p className="text-[11px] text-gray-500">{data?.company_name}</p>
+                        <div className="text-right">
+                          <p className="text-lg font-bold">${data?.current_price}</p>
+                          <p className={`text-xs font-medium ${changePct >= 0 ? 'text-gain' : 'text-loss'}`}>
+                            {changePct >= 0 ? '+' : ''}{changePct.toFixed(2)}%
+                          </p>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <p className="text-lg font-bold">${data?.current_price}</p>
-                        <p className={`text-xs font-medium ${changePct >= 0 ? 'text-gain' : 'text-loss'}`}>
-                          {changePct >= 0 ? '+' : ''}{changePct.toFixed(2)}%
-                        </p>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] bg-dark-700 text-gray-400 px-2 py-0.5 rounded-md">{data?.sector}</span>
+                          {data?.volume > 0 && <span className="text-[10px] text-gray-600">Vol: {(data.volume / 1000000).toFixed(1)}M</span>}
+                        </div>
+                        <svg className={`w-4 h-4 text-gray-500 transition-transform ${isSelected ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
                       </div>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] bg-dark-700 text-gray-400 px-2 py-0.5 rounded-md">{data?.sector}</span>
-                        {data?.volume > 0 && <span className="text-[10px] text-gray-600">Vol: {(data.volume / 1000000).toFixed(1)}M</span>}
+                    {isSelected && (
+                      <div className="col-span-1 sm:col-span-2 lg:col-span-3">
+                        <StockAnalysisPanel
+                          symbol={selectedStock}
+                          stockData={data}
+                          analysisData={a}
+                          hData={historyData}
+                          hRange={historyRange}
+                          hLoading={historyLoading}
+                          onRangeChange={setHistoryRange}
+                          onClose={() => setSelectedStock(null)}
+                          idPrefix="market"
+                        />
                       </div>
-                      <svg className={`w-4 h-4 text-gray-500 transition-transform ${selectedStock === symbol ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </div>
-                  </div>
+                    )}
+                  </React.Fragment>
                 );
               })}
             </div>
-
-            {selectedStock && stocks[selectedStock] && (() => {
-              const data = stocks[selectedStock];
-              const a = getStockAnalysis(selectedStock, data);
-              return (
-                <StockAnalysisPanel
-                  symbol={selectedStock}
-                  stockData={data}
-                  analysisData={a}
-                  hData={historyData}
-                  hRange={historyRange}
-                  hLoading={historyLoading}
-                  onRangeChange={setHistoryRange}
-                  onClose={() => setSelectedStock(null)}
-                  idPrefix="market"
-                />
-              );
-            })()}
           </div>
         )}
 
