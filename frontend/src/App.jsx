@@ -1081,60 +1081,57 @@ function App() {
                     const isExpanded = searchExpanded === stock.symbol;
                     const changePct = stock.change_pct || parseFloat(a.dayChange) || 0;
                     return (
-                      <div
-                        key={stock.symbol}
-                        onClick={() => { setSearchExpanded(isExpanded ? null : stock.symbol); setSearchHistoryRange('1M'); }}
-                        className={`bg-dark-800 border rounded-xl p-4 cursor-pointer transition-all ${
-                          isExpanded ? 'border-accent/50 ring-1 ring-accent/20' : 'border-dark-600/50 hover:border-dark-500'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-2">
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <p className="font-bold text-sm">{stock.symbol.replace('.AX', '')}</p>
-                              <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-semibold ${a.signalColor}`}>{a.signal}</span>
+                      <React.Fragment key={stock.symbol}>
+                        <div
+                          onClick={() => { setSearchExpanded(isExpanded ? null : stock.symbol); setSearchHistoryRange('1M'); }}
+                          className={`bg-dark-800 border rounded-xl p-4 cursor-pointer transition-all ${
+                            isExpanded ? 'border-accent/50 ring-1 ring-accent/20' : 'border-dark-600/50 hover:border-dark-500'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <p className="font-bold text-sm">{stock.symbol.replace('.AX', '')}</p>
+                                <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-semibold ${a.signalColor}`}>{a.signal}</span>
+                              </div>
+                              <p className="text-[11px] text-gray-500">{stock.company_name}</p>
                             </div>
-                            <p className="text-[11px] text-gray-500">{stock.company_name}</p>
+                            <div className="text-right">
+                              <p className="text-lg font-bold">${stock.current_price}</p>
+                              <p className={`text-xs font-medium ${changePct >= 0 ? 'text-gain' : 'text-loss'}`}>
+                                {changePct >= 0 ? '+' : ''}{changePct.toFixed(2)}%
+                              </p>
+                            </div>
                           </div>
-                          <div className="text-right">
-                            <p className="text-lg font-bold">${stock.current_price}</p>
-                            <p className={`text-xs font-medium ${changePct >= 0 ? 'text-gain' : 'text-loss'}`}>
-                              {changePct >= 0 ? '+' : ''}{changePct.toFixed(2)}%
-                            </p>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] bg-dark-700 text-gray-400 px-2 py-0.5 rounded-md">{stock.sector}</span>
+                              {stock.volume > 0 && <span className="text-[10px] text-gray-600">Vol: {(stock.volume / 1000000).toFixed(1)}M</span>}
+                            </div>
+                            <svg className={`w-4 h-4 text-gray-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
                           </div>
                         </div>
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] bg-dark-700 text-gray-400 px-2 py-0.5 rounded-md">{stock.sector}</span>
-                            {stock.volume > 0 && <span className="text-[10px] text-gray-600">Vol: {(stock.volume / 1000000).toFixed(1)}M</span>}
+                        {isExpanded && (
+                          <div className="col-span-1 sm:col-span-2 lg:col-span-3">
+                            <StockAnalysisPanel
+                              symbol={stock.symbol}
+                              stockData={stock}
+                              analysisData={a}
+                              hData={searchHistoryData}
+                              hRange={searchHistoryRange}
+                              hLoading={searchHistoryLoading}
+                              onRangeChange={setSearchHistoryRange}
+                              onClose={() => setSearchExpanded(null)}
+                              idPrefix={`search-${idx}`}
+                            />
                           </div>
-                          <svg className={`w-4 h-4 text-gray-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                          </svg>
-                        </div>
-                      </div>
+                        )}
+                      </React.Fragment>
                     );
                   })}
                 </div>
-
-                {searchExpanded && (() => {
-                  const stock = searchResults.find(s => s.symbol === searchExpanded);
-                  if (!stock) return null;
-                  const a = getStockAnalysis(stock.symbol, stock);
-                  return (
-                    <StockAnalysisPanel
-                      symbol={stock.symbol}
-                      stockData={stock}
-                      analysisData={a}
-                      hData={searchHistoryData}
-                      hRange={searchHistoryRange}
-                      hLoading={searchHistoryLoading}
-                      onRangeChange={setSearchHistoryRange}
-                      onClose={() => setSearchExpanded(null)}
-                      idPrefix="search"
-                    />
-                  );
-                })()}
               </div>
             )}
 
