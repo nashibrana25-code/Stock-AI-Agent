@@ -2,13 +2,12 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 
-// Register PWA Service Worker
+// Unregister any existing service worker and clear caches
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js')
-      .then((reg) => console.log('SW registered:', reg.scope))
-      .catch((err) => console.log('SW registration failed:', err));
+  navigator.serviceWorker.getRegistrations().then((registrations) => {
+    registrations.forEach((reg) => reg.unregister());
   });
+  caches.keys().then((keys) => keys.forEach((k) => caches.delete(k)));
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(
