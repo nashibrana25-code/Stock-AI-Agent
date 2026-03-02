@@ -6,6 +6,7 @@ const RANGES = ['1W', '1M', '3M', '6M', '1Y', '5Y'];
 
 function App() {
   const [capital, setCapital] = useState(1000);
+  const [capitalError, setCapitalError] = useState('');
   const [riskLevel, setRiskLevel] = useState('moderate');
   const [strategy, setStrategy] = useState('balanced');
   const [recommendations, setRecommendations] = useState(null);
@@ -157,11 +158,16 @@ function App() {
   };
 
   const generateRecommendation = async () => {
+    const capNum = parseFloat(capital);
+    if (isNaN(capNum) || capNum < 100 || capNum > 10000) {
+      setCapitalError(capNum < 100 ? 'Minimum investment is $100.' : 'Maximum investment is $10,000.');
+      return;
+    }
     setLoading(true);
     setExpandedRec(null);
     try {
       const response = await axios.post(`${API_URL}/api/v1/recommendations/generate`, {
-        total_capital: parseFloat(capital),
+        total_capital: capNum,
         risk_tolerance: riskLevel,
         investment_strategy: strategy,
       });
@@ -178,6 +184,22 @@ function App() {
     if (capital <= 2000) return { tier: 2, label: 'Core', desc: 'Up to 3 positions' };
     if (capital <= 5000) return { tier: 3, label: 'Growth', desc: 'Up to 7 positions' };
     return { tier: 4, label: 'Portfolio', desc: 'Full diversification' };
+  };
+
+  const handleCapitalChange = (e) => {
+    const val = e.target.value;
+    setCapital(val);
+    const num = parseFloat(val);
+    if (!val || isNaN(num)) { setCapitalError('Please enter an amount.'); }
+    else if (num < 100) { setCapitalError('Minimum investment is $100.'); }
+    else if (num > 10000) { setCapitalError('Maximum investment is $10,000.'); }
+    else { setCapitalError(''); }
+  };
+
+  const handleCapitalBlur = (e) => {
+    const num = parseFloat(e.target.value);
+    if (isNaN(num) || num < 100) { setCapital(100); setCapitalError(''); }
+    else if (num > 10000) { setCapital(10000); setCapitalError(''); }
   };
 
   const t = tierLabel();
@@ -692,12 +714,26 @@ function App() {
                   <div className="relative">
                     <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-semibold">$</span>
                     <input
-                      type="number" min="50" max="10000" value={capital}
-                      onChange={(e) => setCapital(e.target.value)}
-                      className="w-full bg-dark-700 border border-dark-600 rounded-xl pl-8 pr-4 py-3 text-white font-semibold text-lg focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 transition-all"
+                      type="number" min="100" max="10000" value={capital}
+                      onChange={handleCapitalChange}
+                      onBlur={handleCapitalBlur}
+                      className={`w-full bg-dark-700 border rounded-xl pl-8 pr-4 py-3 text-white font-semibold text-lg focus:outline-none focus:ring-1 transition-all ${
+                        capitalError
+                          ? 'border-red-500/70 focus:border-red-500 focus:ring-red-500/20'
+                          : 'border-dark-600 focus:border-accent/50 focus:ring-accent/20'
+                      }`}
                     />
                   </div>
-                  <p className="text-xs text-gray-500 mt-2">{t.desc}</p>
+                  {capitalError
+                    ? <p className="text-xs text-red-400 mt-2">{capitalError}</p>
+                    : <p className="text-xs text-gray-500 mt-2">{t.desc}</p>
+                  }
+                  <div className="mt-3 flex items-start gap-2 bg-dark-700/60 border border-dark-600 rounded-lg px-3 py-2">
+                    <span className="text-accent text-xs mt-0.5">&#9432;</span>
+                    <p className="text-xs text-gray-400 leading-relaxed">
+                      Enter between <span className="text-white font-semibold">$100</span> and <span className="text-white font-semibold">$10,000</span>. Minimum $100 ensures at least one full share can be purchased after brokerage fees.
+                    </p>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-sm text-gray-400 mb-2 font-medium">Risk Tolerance</label>
