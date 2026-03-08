@@ -8,6 +8,14 @@
 
 ---
 
+## Screenshots
+
+| Dashboard | Stock Detail | AI Analysis |
+|-----------|-------------|-------------|
+| ![Dashboard](./assets/dashboard.png) | ![Stock Detail](./assets/stock-detail.png) | ![AI Analysis](./assets/ai-analysis.png) |
+
+---
+
 ## What It Does
 
 A full-stack web application that tracks **50 ASX stocks in real time** and uses a **70-billion parameter AI model** to provide market analysis, stock recommendations, and portfolio construction — all running for **$0/month**.
